@@ -20,8 +20,8 @@
       /* exported handleSignoutClick */
 
       // TODO(developer): Set to client ID and API key from the Developer Console
-      const CLIENT_ID = '911301528634-t24naf0gh17r0cviru6k30d1oh37htuc.apps.googleusercontent.com';
-      const API_KEY = 'AIzaSyDz8AXBiObcgf8uz0uc5lOmtG9YLyYAyM4';
+      var cachedSecrets;
+      const fetchSecrets = async () => cachedSecrets || (cachedSecrets = await (await fetch('../secrets.json')).json());
 
       // Discovery doc URL for APIs used by the quickstart
       const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
@@ -50,7 +50,7 @@
        */
       async function initializeGapiClient() {
         await gapi.client.init({
-          apiKey: API_KEY,
+          apiKey: (await fetchSecrets()).API_KEY,
           discoveryDocs: [DISCOVERY_DOC],
         });
         gapiInited = true;
@@ -60,9 +60,9 @@
       /**
        * Callback after Google Identity Services are loaded.
        */
-      function gisLoaded() {
+      async function gisLoaded() {
         tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID,
+          client_id: (await fetchSecrets()).CLIENT_ID,
           scope: SCOPES,
           callback: '', // defined later
         });
