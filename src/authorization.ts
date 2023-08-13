@@ -28,15 +28,19 @@ export function createAuthorization(
     },
   });
   gapi.load('client', async () => {
-    if (
-      token.access_token &&
-      token.expiration &&
-      Date.now() / 1000 < token.expiration
-    ) {
+    if (state() == 'valid' && token.access_token) {
       gapi.client.setToken({access_token: token.access_token});
       renderBody();
     }
   });
+
+  function state() {
+    return token.expiration && token.access_token
+      ? token.expiration > Date.now() / 1000
+        ? 'valid'
+        : 'expired'
+      : 'none';
+  }
 
   function signIn() {
     tokenClient.requestAccessToken({
@@ -45,17 +49,13 @@ export function createAuthorization(
   }
 
   return {
-    state: () =>
-      token.expiration
-        ? token.expiration > Date.now() / 1000
-          ? 'valid'
-          : 'expired'
-        : 'none',
+    state,
     signIn,
     refresh: signIn,
     signOut() {
-      if (token.access_token)
+      if (token.access_token) {
         google.accounts.oauth2.revoke(token.access_token, () => {});
+      }
       token = {};
       localStorage.removeItem('oauthToken');
     },
