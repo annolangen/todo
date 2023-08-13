@@ -31,7 +31,7 @@ function renderBody() {
   }
   render(
     html`
-      <nav class="main-nav navbar is-primary">
+      <nav class="main-nav navbar is-light">
         <div class="container">
           <div class="navbar-end navbar-menu">
             <a class="navbar-item button is-text" @click=${authenticate}>
