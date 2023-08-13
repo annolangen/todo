@@ -1,10 +1,50 @@
-import { html, render } from 'lit-html';
-import { CLIENT_ID, API_KEY } from './secrets.js';
+import {html, render} from 'lit-html';
+import {API_KEY} from './secrets.js';
+import {createAuthorization, Authorization} from './authorization.js';
 
 let gapiInitialized = false;
-let haveAuthorization = false;
 let listRequest: gapi.client.Request<gapi.client.drive.FileList> | undefined;
 let listResponse: gapi.client.Response<gapi.client.drive.FileList> | undefined;
+
+const auth: Authorization = createAuthorization();
+
+function createNavbar() {
+  let menuActive = false;
+  return () =>
+    html`<nav class="main-nav navbar is-light">
+      <div class="container">
+        <div class="navbar-brand">
+          <a
+            class="navbar-burger ${menuActive ? '' : 'is-active'}"
+            @click=${(menuActive = !menuActive)}
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </a>
+        </div>
+        <div class="navbar-end navbar-menu ${menuActive ? 'is-active' : ''}">
+          <a
+            class="navbar-item button is-text is-size-3-touch"
+            @click=${auth.signIn}
+          >
+            ${auth.state() == 'valid' ? 'Refresh Sign-in' : 'Sign in'}
+          </a>
+          <a
+            class="navbar-item button is-text is-size-3-touch"
+            ?disabled=${auth.state() === 'none'}
+            @click=${auth.signOut}
+          >
+            Sign out
+          </a>
+        </div>
+      </div>
+    </nav>`;
+}
+const navbar = createNavbar();
+
+const readyForFirstListing = () =>
+  !listRequest && !listResponse && auth.state() == 'valid' && gapiInitialized;
 
 const listingHtml = (files: gapi.client.drive.File[] | undefined) =>
   files
@@ -25,38 +65,22 @@ const listingHtml = (files: gapi.client.drive.File[] | undefined) =>
       `
     : '';
 
-function renderBody() {
-  if (!listRequest && !listResponse && haveAuthorization && gapiInitialized) {
-    listFiles();
-  }
+// Principal event handler. Incrementally restablishes invarants for business logic and display.
+export function renderBody() {
+  if (readyForFirstListing()) listFiles();
   render(
     html`
-      <nav class="main-nav navbar is-light">
-        <div class="container">
-          <div class="navbar-end navbar-menu">
-            <a class="navbar-item button is-text" @click=${authenticate}>
-              ${haveAuthorization ? 'Refresh Sign-in' : 'Sign in'}
-            </a>
-            <a
-              class="navbar-item button is-text"
-              ?disabled=${!haveAuthorization}
-              @click=${signOut}
-            >
-              Sign out
-            </a>
-          </div>
-        </div>
-      </nav>
+      ${navbar()}
       <div class="columns">
         <div class="column is-2"></div>
         <div class="column">
           <section class="section">
-            <h1 class="title">Todo</h1>
+            <h1 class="title is-size-1-touch">Todo</h1>
             <hr />
             <div class="content">
               ${listResponse ? html`<h5>Files:</h5>` : ''}
               ${listResponse ? listingHtml(listResponse.result.files) : ''}
-              ${haveAuthorization ? '' : 'Please sign in to see files.'}
+              ${auth.state() === 'valid' ? '' : 'Please sign in to see files.'}
             </div>
           </section>
         </div>
@@ -64,44 +88,6 @@ function renderBody() {
     `,
     document.body
   );
-}
-
-const tokenClient = google.accounts.oauth2.initTokenClient({
-  client_id: CLIENT_ID,
-  scope: 'https://www.googleapis.com/auth/drive.metadata.readonly',
-  callback: (resp) => {
-    if (resp.error !== undefined) throw resp;
-    haveAuthorization = true;
-    renderBody();
-  },
-});
-
-/**
- * Sign in the user upon button click.
- */
-function authenticate() {
-  if (gapi.client.getToken() === null) {
-    // Prompt the user to select a Google Account and ask for consent to share their data
-    // when establishing a new session.
-    tokenClient.requestAccessToken({ prompt: 'consent' });
-  } else {
-    // Skip display of account chooser and consent dialog for an existing session.
-    tokenClient.requestAccessToken({ prompt: '' });
-  }
-}
-
-/**
- *  Sign out the user upon button click.
- */
-export function signOut() {
-  const token = gapi.client.getToken();
-  if (token !== null) {
-    google.accounts.oauth2.revoke(token.access_token, () => {
-      haveAuthorization = false;
-      renderBody();
-    });
-    gapi.client.setToken(null);
-  }
 }
 
 /**
@@ -131,5 +117,7 @@ gapi.load('client', async () => {
   renderBody();
 });
 
-window.onmousedown = window.onmouseup = renderBody;
+// This re-renders on every click, so that indivdual click handlers
+// (like the navbar-burger) don't need to.
+window.onclick = renderBody;
 renderBody();
