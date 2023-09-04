@@ -1,16 +1,37 @@
 import {html, render} from 'lit-html';
-import {API_KEY} from './secrets.js';
+import {API_KEY, TODO_FILE_ID} from './secrets.js';
 import {createAuthorization, Authorization} from './authorization.js';
 
 let gapiInitialized = false;
-let listRequest: gapi.client.Request<gapi.client.drive.FileList> | undefined;
-let listResponse: gapi.client.Response<gapi.client.drive.FileList> | undefined;
+let getRequest: gapi.client.Request<gapi.client.drive.File> | undefined;
+let getResponse: gapi.client.Response<gapi.client.drive.File> | undefined;
 
-const auth: Authorization = createAuthorization();
+interface NavButton {
+  text: string;
+  disabled?: boolean;
+  onClick: () => void;
+}
 
-function createNavbar() {
+const navButtonHtml = ({text, disabled, onClick}: NavButton) =>
+  html` <a
+    class="navbar-item button is-text is-size-3-touch"
+    ?disabled=${disabled || false}
+    @click=${onClick}
+  >
+    ${text}
+  </a>`;
+
+interface Page {
+  signIn: NavButton;
+  signOut: NavButton;
+  todoEntry: {text: string; onChange: () => void};
+  filter: Array<string>;
+  todoList: Array<string>;
+}
+
+const createNavbarRenderer = () => {
   let menuActive = false;
-  return () =>
+  return ({signIn, signOut}: Page) =>
     html`<nav class="main-nav navbar is-light">
       <div class="container">
         <div class="navbar-brand">
@@ -24,82 +45,71 @@ function createNavbar() {
           </a>
         </div>
         <div class="navbar-end navbar-menu ${menuActive ? 'is-active' : ''}">
-          <a
-            class="navbar-item button is-text is-size-3-touch"
-            @click=${auth.signIn}
-          >
-            ${auth.state() == 'valid' ? 'Refresh Sign-in' : 'Sign in'}
-          </a>
-          <a
-            class="navbar-item button is-text is-size-3-touch"
-            ?disabled=${auth.state() === 'none'}
-            @click=${auth.signOut}
-          >
-            Sign out
-          </a>
+          ${navButtonHtml(signIn)} ${navButtonHtml(signOut)}
         </div>
       </div>
     </nav>`;
-}
-const navbar = createNavbar();
+};
+
+const createPageRenderer = () => {
+  const navbar = createNavbarRenderer();
+  const onChange = (e: Event) => {
+    page.todoEntry.text = (e.target as HTMLInputElement).value;
+    page.todoEntry.onChange();
+    renderBody();
+  };
+  return (page: Page) => html`
+    ${navbar(page)}
+    <div class="columns">
+      <div class="column is-2"></div>
+      <div class="column">
+        <div style="width:80%">
+        <input class="input" type='text' placeholder='take the path less traveled' @change=${onChange}>${
+          page.todoEntry.text
+        }</input></div>
+        <table>
+    ${page.todoList.map(
+      (todo) =>
+        html`<tr>
+          <td>${todo}</td>
+        </tr>`
+    )}
+    </table>
+    </div>
+    </div>
+  `;
+};
+const auth: Authorization = createAuthorization();
 
 const readyForFirstListing = () =>
-  !listRequest && !listResponse && auth.state() == 'valid' && gapiInitialized;
+  !getRequest && !getResponse && auth.state() == 'valid' && gapiInitialized;
 
-const listingHtml = (files: gapi.client.drive.File[] | undefined) =>
-  files
-    ? html`
-        <table>
-          <tr>
-            <th>Name</th>
-            <th>ID</th>
-          </tr>
-          ${files.map(
-            (file) =>
-              html`<tr>
-                <td>${file.name}</td>
-                <td>${file.id}</td>
-              </tr>`
-          )}
-        </table>
-      `
-    : '';
+const pageRenderer = createPageRenderer();
+const page: Page = {
+  signIn: {text: 'Sign In', onClick: auth.signIn},
+  signOut: {text: 'Sign Out', disabled: true, onClick: auth.signOut},
+  todoEntry: {text: '', onChange: () => {}},
+  filter: [],
+  todoList: [],
+};
 
 // Principal event handler. Incrementally restablishes invarants for business logic and display.
 export function renderBody() {
-  if (readyForFirstListing()) listFiles();
-  render(
-    html`
-      ${navbar()}
-      <div class="columns">
-        <div class="column is-2"></div>
-        <div class="column">
-          <section class="section">
-            <h1 class="title is-size-1-touch">Todo</h1>
-            <hr />
-            <div class="content">
-              ${listResponse ? html`<h5>Files:</h5>` : ''}
-              ${listResponse ? listingHtml(listResponse.result.files) : ''}
-              ${auth.state() === 'valid' ? '' : 'Please sign in to see files.'}
-            </div>
-          </section>
-        </div>
-      </div>
-    `,
-    document.body
-  );
+  if (readyForFirstListing()) fetchTodos();
+  render(pageRenderer(page), document.body);
 }
 
 /**
  * Print metadata for first 10 files.
  */
-async function listFiles() {
-  listRequest = gapi.client.drive.files.list({
-    pageSize: 10,
-    fields: 'files(id, name)',
+async function fetchTodos() {
+  getRequest = gapi.client.drive.files.get({
+    fileId:TODO_FILE_ID,
+    alt: 'media'
   });
-  listResponse = await listRequest;
-  listRequest = undefined;
+  getResponse = await getRequest;
+  getRequest = undefined;
+  page.todoList = (getResponse.body || '').split('\n');
   renderBody();
 }
 
